@@ -1,0 +1,19 @@
+{
+  "name": "llm-observatory",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "k8s:deploy": "kubectl apply -f k8s/manifests.yaml",
+    "k8s:delete": "kubectl delete -f k8s/manifests.yaml"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
