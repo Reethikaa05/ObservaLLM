@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+.env
+.env.local
+
+# Build files
+dist/
+build/
+
+# Dev files
+.git/
+.gitignore
+Docker*
+docker-compose.yml
+Screenshot/
+k8s/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+README.md
+SETUP_COMPLETE.md
+DATABASE_SETUP.md

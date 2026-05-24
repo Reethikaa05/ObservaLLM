@@ -1,4 +1,7 @@
-const BASE = '/api';
+// Use /_/backend/api on Vercel, /api in development
+const BASE = typeof window !== 'undefined' && window.location.hostname !== 'localhost' 
+  ? '/_/backend/api' 
+  : '/api';
 
 async function req(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
