@@ -57,7 +57,10 @@ app.use((err, req, res, next) => {
 });
 
 // Initialize DB and start
-migrate();
+migrate().catch(err => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
+});
 
 app.listen(PORT, () => {
   console.log(`\n🔭 LLM Observatory Backend`);
