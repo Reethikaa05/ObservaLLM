@@ -56,17 +56,19 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
-// Initialize DB and start
-migrate().catch(err => {
-  console.error('Failed to initialize database:', err);
-  process.exit(1);
-});
-
-app.listen(PORT, () => {
-  console.log(`\n🔭 LLM Observatory Backend`);
-  console.log(`   → http://localhost:${PORT}`);
-  console.log(`   → Health: http://localhost:${PORT}/health`);
-  console.log(`   → API:    http://localhost:${PORT}/api\n`);
-});
+// Initialize DB (async) then start server
+migrate()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`\n🔭 LLM Observatory Backend`);
+      console.log(`   → http://localhost:${PORT}`);
+      console.log(`   → Health: http://localhost:${PORT}/health`);
+      console.log(`   → API:    http://localhost:${PORT}/api\n`);
+    });
+  })
+  .catch((err) => {
+    console.error('❌ Failed to start:', err.message);
+    process.exit(1);
+  });
 
 export default app;

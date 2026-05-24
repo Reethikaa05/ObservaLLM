@@ -27,115 +27,114 @@ const InferenceLogSchema = z.object({
 });
 
 // Ingest a single inference log
-export function ingestLog(rawPayload) {
+export async function ingestLog(rawPayload) {
   const db = getDb();
-  
-  // Validate
+
   const parsed = InferenceLogSchema.safeParse(rawPayload);
   if (!parsed.success) {
     throw new Error(`Validation failed: ${parsed.error.message}`);
   }
-  
+
   const data = parsed.data;
   const id = data.id || nanoid();
   const now = new Date().toISOString();
 
-  // Insert log
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO inference_logs (
+  await db.execute({
+    sql: `INSERT OR REPLACE INTO inference_logs (
       id, conversation_id, message_id, provider, model, request_id,
       status, latency_ms, input_tokens, output_tokens, total_tokens,
       input_preview, output_preview, error_message, error_code,
       stream, pii_redacted, created_at, raw_payload
     ) VALUES (
-      @id, @conversation_id, @message_id, @provider, @model, @request_id,
-      @status, @latency_ms, @input_tokens, @output_tokens, @total_tokens,
-      @input_preview, @output_preview, @error_message, @error_code,
-      @stream, @pii_redacted, @created_at, @raw_payload
-    )
-  `);
-
-  stmt.run({
-    id,
-    conversation_id: data.conversation_id || null,
-    message_id: data.message_id || null,
-    provider: data.provider,
-    model: data.model,
-    request_id: data.request_id || null,
-    status: data.status,
-    latency_ms: data.latency_ms ?? null,
-    input_tokens: data.input_tokens ?? null,
-    output_tokens: data.output_tokens ?? null,
-    total_tokens: data.total_tokens ?? null,
-    input_preview: data.input_preview || null,
-    output_preview: data.output_preview || null,
-    error_message: data.error_message || null,
-    error_code: data.error_code || null,
-    stream: data.stream ? 1 : 0,
-    pii_redacted: data.pii_redacted ? 1 : 0,
-    created_at: data.created_at || now,
-    raw_payload: data.raw_payload ? JSON.stringify(data.raw_payload) : null,
+      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?,
+      ?, ?, ?, ?
+    )`,
+    args: [
+      id,
+      data.conversation_id || null,
+      data.message_id || null,
+      data.provider,
+      data.model,
+      data.request_id || null,
+      data.status,
+      data.latency_ms ?? null,
+      data.input_tokens ?? null,
+      data.output_tokens ?? null,
+      data.total_tokens ?? null,
+      data.input_preview || null,
+      data.output_preview || null,
+      data.error_message || null,
+      data.error_code || null,
+      data.stream ? 1 : 0,
+      data.pii_redacted ? 1 : 0,
+      data.created_at || now,
+      data.raw_payload ? JSON.stringify(data.raw_payload) : null,
+    ]
   });
 
   // Update conversation aggregate stats
   if (data.conversation_id) {
-    db.prepare(`
-      UPDATE conversations SET
-        total_input_tokens = total_input_tokens + @input_tokens,
-        total_output_tokens = total_output_tokens + @output_tokens,
-        total_latency_ms = total_latency_ms + @latency_ms,
-        updated_at = @now
-      WHERE id = @conversation_id
-    `).run({
-      input_tokens: data.input_tokens || 0,
-      output_tokens: data.output_tokens || 0,
-      latency_ms: data.latency_ms || 0,
-      now,
-      conversation_id: data.conversation_id,
+    await db.execute({
+      sql: `UPDATE conversations SET
+              total_input_tokens = total_input_tokens + ?,
+              total_output_tokens = total_output_tokens + ?,
+              total_latency_ms = total_latency_ms + ?,
+              updated_at = ?
+            WHERE id = ?`,
+      args: [
+        data.input_tokens || 0,
+        data.output_tokens || 0,
+        data.latency_ms || 0,
+        now,
+        data.conversation_id
+      ]
     });
   }
 
-  const log = db.prepare('SELECT * FROM inference_logs WHERE id = ?').get(id);
-  emit(EventTypes.LOG_INGESTED, log);
-  
+  const logResult = await db.execute({
+    sql: 'SELECT * FROM inference_logs WHERE id = ?',
+    args: [id]
+  });
+  const log = logResult.rows[0];
+  await emit(EventTypes.LOG_INGESTED, log);
+
   return log;
 }
 
-// Bulk ingest
-export function ingestBatch(payloads) {
-  const db = getDb();
+// Bulk ingest — run sequentially (Turso doesn't support SQLite transactions over HTTP the same way)
+export async function ingestBatch(payloads) {
   const results = [];
   const errors = [];
 
-  const ingestMany = db.transaction((items) => {
-    for (const item of items) {
-      try {
-        results.push(ingestLog(item));
-      } catch (err) {
-        errors.push({ item, error: err.message });
-      }
+  for (const item of payloads) {
+    try {
+      const log = await ingestLog(item);
+      results.push(log);
+    } catch (err) {
+      errors.push({ item, error: err.message });
     }
-  });
+  }
 
-  ingestMany(payloads);
   return { results, errors };
 }
 
 // Get analytics aggregates
-export function getAnalytics(options = {}) {
+export async function getAnalytics(options = {}) {
   const db = getDb();
   const { hours = 24, provider, model } = options;
 
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-  
-  let whereClause = "WHERE created_at >= ?";
-  const params = [since];
-  
-  if (provider) { whereClause += " AND provider = ?"; params.push(provider); }
-  if (model) { whereClause += " AND model = ?"; params.push(model); }
 
-  const summary = db.prepare(`
-    SELECT
+  let whereClause = 'WHERE created_at >= ?';
+  const params = [since];
+
+  if (provider) { whereClause += ' AND provider = ?'; params.push(provider); }
+  if (model) { whereClause += ' AND model = ?'; params.push(model); }
+
+  const summaryResult = await db.execute({
+    sql: `SELECT
       COUNT(*) as total_requests,
       COUNT(CASE WHEN status = 'success' THEN 1 END) as successful,
       COUNT(CASE WHEN status = 'error' THEN 1 END) as errors,
@@ -143,28 +142,31 @@ export function getAnalytics(options = {}) {
       ROUND(AVG(CASE WHEN status='success' THEN latency_ms END), 2) as avg_latency_ms,
       MIN(CASE WHEN status='success' THEN latency_ms END) as min_latency_ms,
       MAX(CASE WHEN status='success' THEN latency_ms END) as max_latency_ms,
-      ROUND(AVG(CASE WHEN latency_ms <= 1000 THEN 1.0 ELSE 0.0 END) * 100, 2) as p50_under_1s_pct,
       SUM(COALESCE(input_tokens, 0)) as total_input_tokens,
       SUM(COALESCE(output_tokens, 0)) as total_output_tokens,
       ROUND(AVG(COALESCE(total_tokens, 0)), 2) as avg_tokens_per_request,
       ROUND(100.0 * COUNT(CASE WHEN status='success' THEN 1 END) / MAX(COUNT(*), 1), 2) as success_rate
-    FROM inference_logs ${whereClause}
-  `).get(...params);
+    FROM inference_logs ${whereClause}`,
+    args: params
+  });
 
-  // Latency percentiles (manual calculation)
-  const latencies = db.prepare(`
-    SELECT latency_ms FROM inference_logs
-    ${whereClause} AND status = 'success' AND latency_ms IS NOT NULL
-    ORDER BY latency_ms
-  `).all(...params).map(r => r.latency_ms);
+  const summary = summaryResult.rows[0] || {};
 
+  // Latency percentiles
+  const latencyResult = await db.execute({
+    sql: `SELECT latency_ms FROM inference_logs
+          ${whereClause} AND status = 'success' AND latency_ms IS NOT NULL
+          ORDER BY latency_ms`,
+    args: params
+  });
+  const latencies = latencyResult.rows.map(r => Number(r.latency_ms));
   const p50 = percentile(latencies, 50);
   const p95 = percentile(latencies, 95);
   const p99 = percentile(latencies, 99);
 
   // Throughput over time (hourly buckets)
-  const throughput = db.prepare(`
-    SELECT 
+  const throughputResult = await db.execute({
+    sql: `SELECT
       strftime('%Y-%m-%dT%H:00:00', created_at) as bucket,
       COUNT(*) as requests,
       COUNT(CASE WHEN status='success' THEN 1 END) as successes,
@@ -172,25 +174,26 @@ export function getAnalytics(options = {}) {
       ROUND(AVG(latency_ms), 0) as avg_latency
     FROM inference_logs ${whereClause}
     GROUP BY bucket
-    ORDER BY bucket
-  `).all(...params);
+    ORDER BY bucket`,
+    args: params
+  });
 
   // Provider breakdown
-  const byProvider = db.prepare(`
-    SELECT 
-      provider,
-      model,
+  const byProviderResult = await db.execute({
+    sql: `SELECT
+      provider, model,
       COUNT(*) as requests,
       ROUND(AVG(latency_ms), 0) as avg_latency,
       SUM(COALESCE(total_tokens, 0)) as total_tokens
     FROM inference_logs ${whereClause}
     GROUP BY provider, model
-    ORDER BY requests DESC
-  `).all(...params);
+    ORDER BY requests DESC`,
+    args: params
+  });
 
   // Error breakdown
-  const errors = db.prepare(`
-    SELECT 
+  const errorsResult = await db.execute({
+    sql: `SELECT
       error_code,
       COUNT(*) as count,
       MIN(created_at) as first_seen,
@@ -198,16 +201,29 @@ export function getAnalytics(options = {}) {
     FROM inference_logs ${whereClause} AND status = 'error'
     GROUP BY error_code
     ORDER BY count DESC
-    LIMIT 10
-  `).all(...params);
+    LIMIT 10`,
+    args: params
+  });
 
   return {
     summary: { ...summary, p50_latency_ms: p50, p95_latency_ms: p95, p99_latency_ms: p99 },
-    throughput,
-    byProvider,
-    errors,
+    throughput: throughputResult.rows,
+    byProvider: byProviderResult.rows,
+    errors: errorsResult.rows,
     period_hours: hours,
   };
+}
+
+export async function deleteLog(id) {
+  const db = getDb();
+  await db.execute({ sql: 'DELETE FROM inference_logs WHERE id = ?', args: [id] });
+  return { id, deleted: true };
+}
+
+export async function deleteEvent(id) {
+  const db = getDb();
+  await db.execute({ sql: 'DELETE FROM events WHERE id = ?', args: [id] });
+  return { id, deleted: true };
 }
 
 function percentile(sorted, p) {

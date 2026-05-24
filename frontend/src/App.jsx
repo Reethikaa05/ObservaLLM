@@ -6,6 +6,7 @@ import { ConversationsPage } from './pages/ConversationsPage.jsx';
 import { DashboardPage } from './pages/DashboardPage.jsx';
 import { LogsPage } from './pages/LogsPage.jsx';
 import { EventsPage } from './pages/EventsPage.jsx';
+import { DatabasePage } from './pages/DatabasePage.jsx';
 import { useStore } from './stores/store.js';
 import { useSSE } from './hooks/useSSE.js';
 import { clsx } from 'clsx';
@@ -31,6 +32,7 @@ function AppInner() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/events" element={<EventsPage />} />
+          <Route path="/database" element={<DatabasePage />} />
         </Routes>
       </main>
     </div>

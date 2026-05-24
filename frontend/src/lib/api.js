@@ -1,6 +1,6 @@
 // Use /_/backend/api on Vercel, /api in development
-const BASE = typeof window !== 'undefined' && window.location.hostname !== 'localhost' 
-  ? '/_/backend/api' 
+const BASE = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+  ? '/_/backend/api'
   : '/api';
 
 async function req(path, options = {}) {
@@ -27,6 +27,7 @@ export const api = {
   cancelConversation: (id) => req(`/conversations/${id}/cancel`, { method: 'POST' }),
   resumeConversation: (id) => req(`/conversations/${id}/resume`, { method: 'POST' }),
   updateTitle: (id, title) => req(`/conversations/${id}`, { method: 'PATCH', body: { title } }),
+  deleteConversation: (id) => req(`/conversations/${id}`, { method: 'DELETE' }),
 
   // Messages
   sendMessage: (convId, content, model) =>
@@ -43,12 +44,14 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return req(`/logs${qs ? '?' + qs : ''}`);
   },
+  deleteLog: (id) => req(`/logs/${id}`, { method: 'DELETE' }),
 
   // Events
   getEvents: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return req(`/events${qs ? '?' + qs : ''}`);
   },
+  deleteEvent: (id) => req(`/events/${id}`, { method: 'DELETE' }),
 
   // Streaming message
   streamMessage: (convId, content, { onChunk, onDone, onError, onUserMessage } = {}) => {

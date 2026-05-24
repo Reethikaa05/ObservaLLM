@@ -1,14 +1,14 @@
 import { Router } from 'express';
-import { ingestLog, ingestBatch, getAnalytics } from '../services/ingestion.js';
+import { ingestLog, ingestBatch, getAnalytics, deleteLog, deleteEvent } from '../services/ingestion.js';
 import { getDb } from '../db/migrate.js';
 import { addSSEClient } from '../events/bus.js';
 
 const router = Router();
 
 // Single log ingestion
-router.post('/ingest', (req, res) => {
+router.post('/ingest', async (req, res) => {
   try {
-    const log = ingestLog(req.body);
+    const log = await ingestLog(req.body);
     res.status(201).json({ success: true, log });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -16,11 +16,11 @@ router.post('/ingest', (req, res) => {
 });
 
 // Batch ingestion
-router.post('/ingest/batch', (req, res) => {
+router.post('/ingest/batch', async (req, res) => {
   try {
     const { logs } = req.body;
     if (!Array.isArray(logs)) return res.status(400).json({ error: 'logs must be array' });
-    const result = ingestBatch(logs);
+    const result = await ingestBatch(logs);
     res.status(201).json({ success: true, ...result });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -28,10 +28,10 @@ router.post('/ingest/batch', (req, res) => {
 });
 
 // Analytics dashboard data
-router.get('/analytics', (req, res) => {
+router.get('/analytics', async (req, res) => {
   try {
     const { hours = 24, provider, model } = req.query;
-    const analytics = getAnalytics({ hours: parseInt(hours), provider, model });
+    const analytics = await getAnalytics({ hours: parseInt(hours), provider, model });
     res.json(analytics);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -39,23 +39,33 @@ router.get('/analytics', (req, res) => {
 });
 
 // List inference logs
-router.get('/logs', (req, res) => {
+router.get('/logs', async (req, res) => {
   try {
     const db = getDb();
     const { limit = 50, offset = 0, conversation_id, status, provider } = req.query;
-    
-    let q = 'SELECT * FROM inference_logs WHERE 1=1';
-    const params = [];
-    
-    if (conversation_id) { q += ' AND conversation_id = ?'; params.push(conversation_id); }
-    if (status) { q += ' AND status = ?'; params.push(status); }
-    if (provider) { q += ' AND provider = ?'; params.push(provider); }
-    
-    q += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
-    
-    const logs = db.prepare(q).all(...params);
-    res.json({ logs, total: logs.length });
+
+    let sql = 'SELECT * FROM inference_logs WHERE 1=1';
+    const args = [];
+
+    if (conversation_id) { sql += ' AND conversation_id = ?'; args.push(conversation_id); }
+    if (status) { sql += ' AND status = ?'; args.push(status); }
+    if (provider) { sql += ' AND provider = ?'; args.push(provider); }
+
+    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    args.push(parseInt(limit), parseInt(offset));
+
+    const result = await db.execute({ sql, args });
+    res.json({ logs: result.rows, total: result.rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a single log
+router.delete('/logs/:id', async (req, res) => {
+  try {
+    const result = await deleteLog(req.params.id);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -72,7 +82,7 @@ router.get('/events/stream', (req, res) => {
   res.write('event: connected\ndata: {"status":"connected"}\n\n');
 
   const unsubscribe = addSSEClient(res);
-  
+
   const heartbeat = setInterval(() => {
     res.write(': heartbeat\n\n');
   }, 30000);
@@ -84,16 +94,30 @@ router.get('/events/stream', (req, res) => {
 });
 
 // Events list
-router.get('/events', (req, res) => {
+router.get('/events', async (req, res) => {
   try {
     const db = getDb();
     const { limit = 50, type } = req.query;
-    let q = 'SELECT * FROM events WHERE 1=1';
-    const params = [];
-    if (type) { q += ' AND type = ?'; params.push(type); }
-    q += ' ORDER BY created_at DESC LIMIT ?';
-    params.push(parseInt(limit));
-    res.json({ events: db.prepare(q).all(...params) });
+
+    let sql = 'SELECT * FROM events WHERE 1=1';
+    const args = [];
+
+    if (type) { sql += ' AND type = ?'; args.push(type); }
+    sql += ' ORDER BY created_at DESC LIMIT ?';
+    args.push(parseInt(limit));
+
+    const result = await db.execute({ sql, args });
+    res.json({ events: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a single event
+router.delete('/events/:id', async (req, res) => {
+  try {
+    const result = await deleteEvent(req.params.id);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

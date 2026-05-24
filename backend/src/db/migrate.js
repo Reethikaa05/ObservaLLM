@@ -1,48 +1,83 @@
-import mongoose from 'mongoose';
-import { Conversation, Message, InferenceLog, Event } from './models.js';
+import { createClient } from '@libsql/client';
+import { config } from 'dotenv';
+
+config();
 
 let db;
 
-export async function getDb() {
+export function getDb() {
   if (!db) {
-    const mongoUrl = process.env.MONGODB_URI || 'mongodb://localhost:27017/observatory';
-    
-    try {
-      await mongoose.connect(mongoUrl, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-      });
-      console.log('✅ Connected to MongoDB');
-      db = mongoose.connection;
-    } catch (error) {
-      console.error('❌ MongoDB connection failed:', error.message);
-      throw error;
-    }
+    const url = process.env.TURSO_DATABASE_URL;
+    const authToken = process.env.TURSO_AUTH_TOKEN;
+
+    if (!url) throw new Error('TURSO_DATABASE_URL is not set');
+
+    db = createClient({ url, authToken });
   }
   return db;
 }
 
 export async function migrate() {
-  try {
-    await getDb();
-    
-    // Create indexes
-    await Conversation.collection.createIndex({ created_at: -1 });
-    await Conversation.collection.createIndex({ status: 1 });
-    await Message.collection.createIndex({ conversation_id: 1, created_at: -1 });
-    await InferenceLog.collection.createIndex({ created_at: -1 });
-    await InferenceLog.collection.createIndex({ status: 1 });
-    await InferenceLog.collection.createIndex({ provider: 1 });
-    await Event.collection.createIndex({ type: 1 });
-    await Event.collection.createIndex({ processed: 1 });
-    
-    console.log('✅ Database migrated successfully');
-    return db;
-  } catch (error) {
-    console.error('❌ Migration failed:', error.message);
-    throw error;
-  }
+  const db = getDb();
+
+  await db.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      provider TEXT NOT NULL DEFAULT 'anthropic',
+      model TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      message_count INTEGER DEFAULT 0,
+      total_input_tokens INTEGER DEFAULT 0,
+      total_output_tokens INTEGER DEFAULT 0,
+      total_latency_ms INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      cancelled_at TEXT,
+      metadata TEXT DEFAULT '{}'
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      content_preview TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS inference_logs (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT,
+      message_id TEXT,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      request_id TEXT,
+      status TEXT NOT NULL,
+      latency_ms INTEGER,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      total_tokens INTEGER,
+      input_preview TEXT,
+      output_preview TEXT,
+      error_message TEXT,
+      error_code TEXT,
+      stream INTEGER DEFAULT 0,
+      pii_redacted INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      raw_payload TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'sdk',
+      payload TEXT NOT NULL,
+      processed INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  console.log('✅ Turso database migrated successfully');
+  return db;
 }
-
-export { Conversation, Message, InferenceLog, Event };
-

@@ -3,17 +3,17 @@ import { createSDK } from '../sdk/llm.js';
 import {
   createConversation, getConversation, getMessages,
   addMessage, cancelConversation, resumeConversation,
-  listConversations, updateConversationTitle
+  listConversations, updateConversationTitle, deleteConversation
 } from '../services/conversations.js';
 import { ingestLog } from '../services/ingestion.js';
 
 const router = Router();
 
 // List conversations
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const { limit = 20, offset = 0, status } = req.query;
-    const convs = listConversations({ limit: parseInt(limit), offset: parseInt(offset), status });
+    const convs = await listConversations({ limit: parseInt(limit), offset: parseInt(offset), status });
     res.json({ conversations: convs, total: convs.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -21,10 +21,10 @@ router.get('/', (req, res) => {
 });
 
 // Create conversation
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { title, provider, model } = req.body;
-    const conv = createConversation({ title, provider, model });
+    const conv = await createConversation({ title, provider, model });
     res.status(201).json(conv);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -32,21 +32,31 @@ router.post('/', (req, res) => {
 });
 
 // Get conversation + messages
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const conv = getConversation(req.params.id);
+    const conv = await getConversation(req.params.id);
     if (!conv) return res.status(404).json({ error: 'Not found' });
-    const messages = getMessages(req.params.id);
+    const messages = await getMessages(req.params.id);
     res.json({ ...conv, messages });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Cancel conversation
-router.post('/:id/cancel', (req, res) => {
+// Delete conversation
+router.delete('/:id', async (req, res) => {
   try {
-    const conv = cancelConversation(req.params.id);
+    const result = await deleteConversation(req.params.id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Cancel conversation
+router.post('/:id/cancel', async (req, res) => {
+  try {
+    const conv = await cancelConversation(req.params.id);
     if (!conv) return res.status(404).json({ error: 'Not found' });
     res.json(conv);
   } catch (err) {
@@ -55,9 +65,9 @@ router.post('/:id/cancel', (req, res) => {
 });
 
 // Resume conversation
-router.post('/:id/resume', (req, res) => {
+router.post('/:id/resume', async (req, res) => {
   try {
-    const conv = resumeConversation(req.params.id);
+    const conv = await resumeConversation(req.params.id);
     if (!conv) return res.status(404).json({ error: 'Not found' });
     res.json(conv);
   } catch (err) {
@@ -66,10 +76,10 @@ router.post('/:id/resume', (req, res) => {
 });
 
 // Update title
-router.patch('/:id', (req, res) => {
+router.patch('/:id', async (req, res) => {
   try {
     const { title } = req.body;
-    const conv = updateConversationTitle(req.params.id, title);
+    const conv = await updateConversationTitle(req.params.id, title);
     res.json(conv);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -78,42 +88,29 @@ router.patch('/:id', (req, res) => {
 
 // Send message (non-streaming)
 router.post('/:id/messages', async (req, res) => {
-  const conv = getConversation(req.params.id);
+  const conv = await getConversation(req.params.id);
   if (!conv) return res.status(404).json({ error: 'Not found' });
   if (conv.status === 'cancelled') return res.status(400).json({ error: 'Conversation is cancelled' });
 
   const { content, model } = req.body;
   if (!content?.trim()) return res.status(400).json({ error: 'Content required' });
 
-  // Save user message
-  const userMsg = addMessage({ conversationId: conv.id, role: 'user', content });
-
-  // Get history
-  const history = getMessages(conv.id);
+  const userMsg = await addMessage({ conversationId: conv.id, role: 'user', content });
+  const history = await getMessages(conv.id);
   const messages = history.map(m => ({ role: m.role, content: m.content }));
-
   const sdk = createSDK({ provider: conv.provider, model: model || conv.model });
 
   try {
     const result = await sdk.chat(messages, { conversationId: conv.id });
+    const assistantMsg = await addMessage({ conversationId: conv.id, role: 'assistant', content: result.text });
+    await ingestLog({ ...result.metadata, message_id: assistantMsg.id });
 
-    // Save assistant message
-    const assistantMsg = addMessage({ conversationId: conv.id, role: 'assistant', content: result.text });
-
-    // Ingest log
-    ingestLog({ ...result.metadata, message_id: assistantMsg.id });
-
-    // Auto-title on first exchange
     if (history.length <= 2) {
       const title = content.slice(0, 60) + (content.length > 60 ? '...' : '');
-      updateConversationTitle(conv.id, title);
+      await updateConversationTitle(conv.id, title);
     }
 
-    res.json({
-      message: assistantMsg,
-      usage: result.usage,
-      latency_ms: result.metadata.latency_ms,
-    });
+    res.json({ message: assistantMsg, usage: result.usage, latency_ms: result.metadata.latency_ms });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -121,26 +118,24 @@ router.post('/:id/messages', async (req, res) => {
 
 // Streaming message endpoint
 router.post('/:id/messages/stream', async (req, res) => {
-  const conv = getConversation(req.params.id);
+  const conv = await getConversation(req.params.id);
   if (!conv) return res.status(404).json({ error: 'Not found' });
   if (conv.status === 'cancelled') return res.status(400).json({ error: 'Conversation is cancelled' });
 
   const { content, model } = req.body;
   if (!content?.trim()) return res.status(400).json({ error: 'Content required' });
 
-  // SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
-  const userMsg = addMessage({ conversationId: conv.id, role: 'user', content });
+  const userMsg = await addMessage({ conversationId: conv.id, role: 'user', content });
   res.write(`event: user_message\ndata: ${JSON.stringify(userMsg)}\n\n`);
 
-  const history = getMessages(conv.id);
+  const history = await getMessages(conv.id);
   const messages = history.map(m => ({ role: m.role, content: m.content }));
-
   const sdk = createSDK({ provider: conv.provider, model: model || conv.model });
 
   let fullText = '';
@@ -159,16 +154,15 @@ router.post('/:id/messages/stream', async (req, res) => {
     }
   }
 
-  // Save assistant message
-  const assistantMsg = addMessage({ conversationId: conv.id, role: 'assistant', content: fullText });
+  const assistantMsg = await addMessage({ conversationId: conv.id, role: 'assistant', content: fullText });
 
   if (finalMetadata) {
-    ingestLog({ ...finalMetadata, message_id: assistantMsg.id });
+    await ingestLog({ ...finalMetadata, message_id: assistantMsg.id });
   }
 
   if (history.length <= 2) {
     const title = content.slice(0, 60) + (content.length > 60 ? '...' : '');
-    updateConversationTitle(conv.id, title);
+    await updateConversationTitle(conv.id, title);
   }
 
   res.write(`event: done\ndata: ${JSON.stringify({ message: assistantMsg, metadata: finalMetadata })}\n\n`);

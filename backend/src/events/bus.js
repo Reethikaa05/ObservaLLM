@@ -21,7 +21,7 @@ export function on(eventType, handler) {
     listeners.set(eventType, []);
   }
   listeners.get(eventType).push(handler);
-  return () => off(eventType, handler); // return unsubscribe fn
+  return () => off(eventType, handler);
 }
 
 // Unsubscribe
@@ -30,7 +30,7 @@ export function off(eventType, handler) {
   listeners.set(eventType, handlers.filter(h => h !== handler));
 }
 
-// Emit event - stores in DB and notifies listeners
+// Emit event — stores in DB and notifies listeners
 export async function emit(eventType, payload, source = 'system') {
   const event = {
     id: nanoid(),
@@ -41,13 +41,14 @@ export async function emit(eventType, payload, source = 'system') {
     created_at: new Date().toISOString()
   };
 
-  // Persist to DB
+  // Persist to DB asynchronously (don't block)
   try {
     const db = getDb();
-    db.prepare(`
-      INSERT INTO events (id, type, source, payload, processed, created_at)
-      VALUES (@id, @type, @source, @payload, @processed, @created_at)
-    `).run(event);
+    await db.execute({
+      sql: `INSERT INTO events (id, type, source, payload, processed, created_at)
+            VALUES (:id, :type, :source, :payload, :processed, :created_at)`,
+      args: event
+    });
   } catch (err) {
     console.error('Event persistence failed:', err.message);
   }
@@ -55,7 +56,7 @@ export async function emit(eventType, payload, source = 'system') {
   // Notify in-memory listeners
   const handlers = listeners.get(eventType) || [];
   const wildcardHandlers = listeners.get('*') || [];
-  
+
   for (const handler of [...handlers, ...wildcardHandlers]) {
     try {
       await handler({ type: eventType, payload, source, id: event.id });
@@ -75,7 +76,7 @@ export function addSSEClient(res) {
   return () => sseClients.delete(res);
 }
 
-// Broadcast to SSE clients
+// Broadcast to all SSE clients
 export function broadcastSSE(eventType, data) {
   const message = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of sseClients) {
@@ -87,10 +88,7 @@ export function broadcastSSE(eventType, data) {
   }
 }
 
-// Wire up event → SSE bridge
+// Wire up wildcard → SSE bridge
 on('*', ({ type, payload }) => {
   broadcastSSE(type, payload);
 });
-
-// Override emit to also broadcast SSE
-const originalEmit = emit;

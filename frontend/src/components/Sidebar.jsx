@@ -13,7 +13,9 @@ const navItems = [
   { path: '/dashboard', icon: BarChart3, label: 'Dashboard' },
   { path: '/logs', icon: Database, label: 'Logs' },
   { path: '/events', icon: Zap, label: 'Events' },
+  { path: '/database', icon: Settings, label: 'DB Manager' },
 ];
+
 
 export function Sidebar() {
   const navigate = useNavigate();
