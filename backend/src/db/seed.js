@@ -1,155 +1,203 @@
-import { migrate } from './migrate.js';
-import { Conversation, Message, InferenceLog, Event } from './models.js';
-import { randomUUID } from 'crypto';
+import { getDb, migrate } from './migrate.js';
+import { nanoid } from 'nanoid';
 
 async function seedDatabase() {
   try {
+    // Ensure migrations are run first
     await migrate();
-    
-    // Check if data already exists
-    const conversationCount = await Conversation.countDocuments();
-    
-    if (conversationCount > 0) {
-      console.log('⚠️  Database already seeded. Skipping...');
-      process.exit(0);
+
+    const db = getDb();
+
+    // Check if --force is passed to clear existing data
+    const force = process.argv.includes('--force');
+    if (force) {
+      console.log('🧹 Clear existing database tables...');
+      await db.execute('DELETE FROM conversations');
+      await db.execute('DELETE FROM messages');
+      await db.execute('DELETE FROM inference_logs');
+      await db.execute('DELETE FROM events');
+    } else {
+      // Check if data already exists in Turso
+      const countResult = await db.execute('SELECT COUNT(*) as count FROM conversations');
+      const conversationCount = Number(countResult.rows[0]?.count || 0);
+
+      if (conversationCount > 0) {
+        console.log('⚠️  Database already seeded. Skipping... (Use --force to override)');
+        process.exit(0);
+      }
     }
 
-    console.log('🌱 Seeding database with sample data...\n');
+    console.log('🌱 Seeding Turso database with sample data...\n');
 
-    // Sample conversations
+    // Generate stable UUIDs/IDs for relationships
+    const convId1 = 'conv_arch_observability_' + nanoid(6);
+    const convId2 = 'conv_rate_limiting_' + nanoid(6);
+    const convId3 = 'conv_db_opt_' + nanoid(6);
+    const convId4 = 'conv_err_handling_' + nanoid(6);
+
+    const msgId1 = 'msg_user_1_' + nanoid(6);
+    const msgId2 = 'msg_asst_1_' + nanoid(6);
+    const msgId3 = 'msg_user_2_' + nanoid(6);
+    const msgId4 = 'msg_asst_2_' + nanoid(6);
+    const msgId5 = 'msg_user_3_' + nanoid(6);
+    const msgId6 = 'msg_asst_3_' + nanoid(6);
+
+    const now = new Date();
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+
+    // 1. Seed Conversations
+    console.log('Inserting conversations...');
     const conversations = [
       {
-        _id: randomUUID(),
-        title: 'LLM Observable Architecture Discussion',
+        id: convId1,
+        title: 'LLM Observatory Architecture Discussion',
         provider: 'anthropic',
-        model: 'claude-3-sonnet-20240229',
+        model: 'claude-sonnet-4-20250514',
         status: 'completed',
-        message_count: 8,
+        message_count: 4,
         total_input_tokens: 2450,
         total_output_tokens: 1820,
         total_latency_ms: 3200,
-        created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-        updated_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+        created_at: twoDaysAgo.toISOString(),
+        updated_at: twoDaysAgo.toISOString(),
         cancelled_at: null,
-        metadata: { tags: ['architecture', 'observability'] }
+        metadata: JSON.stringify({ tags: ['architecture', 'observability'] })
       },
       {
-        _id: randomUUID(),
+        id: convId2,
         title: 'API Rate Limiting Best Practices',
         provider: 'anthropic',
-        model: 'claude-3-haiku-20240307',
+        model: 'claude-haiku-4-5-20251001',
         status: 'completed',
-        message_count: 12,
+        message_count: 2,
         total_input_tokens: 3200,
         total_output_tokens: 2500,
         total_latency_ms: 4100,
-        created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-        updated_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+        created_at: dayAgo.toISOString(),
+        updated_at: dayAgo.toISOString(),
         cancelled_at: null,
-        metadata: { tags: ['api', 'performance'] }
+        metadata: JSON.stringify({ tags: ['api', 'performance'] })
       },
       {
-        _id: randomUUID(),
+        id: convId3,
         title: 'Database Optimization Strategies',
         provider: 'anthropic',
-        model: 'claude-3-opus-20240229',
+        model: 'claude-opus-4-20250514',
         status: 'active',
-        message_count: 5,
+        message_count: 0,
         total_input_tokens: 1800,
         total_output_tokens: 1200,
         total_latency_ms: 2100,
-        created_at: new Date(Date.now() - 30 * 60 * 1000),
-        updated_at: new Date(Date.now() - 5 * 60 * 1000),
+        created_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        updated_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
         cancelled_at: null,
-        metadata: { tags: ['database', 'optimization'] }
+        metadata: JSON.stringify({ tags: ['database', 'optimization'] })
       },
       {
-        _id: randomUUID(),
+        id: convId4,
         title: 'Error Handling Patterns',
         provider: 'anthropic',
-        model: 'claude-3-haiku-20240307',
+        model: 'claude-haiku-4-5-20251001',
         status: 'cancelled',
-        message_count: 3,
+        message_count: 0,
         total_input_tokens: 900,
         total_output_tokens: 500,
         total_latency_ms: 1200,
-        created_at: new Date(Date.now() - 3 * 60 * 1000),
-        updated_at: new Date(Date.now() - 2 * 60 * 1000),
-        cancelled_at: new Date(Date.now() - 2 * 60 * 1000),
-        metadata: { tags: ['errors', 'patterns'] }
+        created_at: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+        updated_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+        cancelled_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+        metadata: JSON.stringify({ tags: ['errors', 'patterns'] })
       }
     ];
 
-    // Insert conversations
-    const insertedConvs = await Conversation.insertMany(conversations);
-    console.log(`✅ Inserted ${insertedConvs.length} conversations`);
+    for (const conv of conversations) {
+      await db.execute({
+        sql: `INSERT INTO conversations (id, title, provider, model, status, message_count, total_input_tokens, total_output_tokens, total_latency_ms, created_at, updated_at, cancelled_at, metadata)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          conv.id, conv.title, conv.provider, conv.model, conv.status,
+          conv.message_count, conv.total_input_tokens, conv.total_output_tokens, conv.total_latency_ms,
+          conv.created_at, conv.updated_at, conv.cancelled_at, conv.metadata
+        ]
+      });
+    }
+    console.log(`✅ Seeded ${conversations.length} conversations`);
 
-    // Sample messages
+    // 2. Seed Messages
+    console.log('Inserting messages...');
     const messages = [
       {
-        _id: randomUUID(),
-        conversation_id: conversations[0]._id,
+        id: msgId1,
+        conversation_id: convId1,
         role: 'user',
         content: 'How should I design an observable LLM system?',
         content_preview: 'How should I design an observable LLM system?',
-        created_at: new Date()
+        created_at: twoDaysAgo.toISOString()
       },
       {
-        _id: randomUUID(),
-        conversation_id: conversations[0]._id,
+        id: msgId2,
+        conversation_id: convId1,
         role: 'assistant',
         content: 'An observable LLM system should include: 1) Structured logging for all API calls 2) Distributed tracing 3) Metrics collection for token usage and latency 4) Error tracking and alerting. You might consider using tools like OpenTelemetry for instrumentation.',
         content_preview: 'An observable LLM system should include: 1) Structured logging...',
-        created_at: new Date()
+        created_at: new Date(twoDaysAgo.getTime() + 1000 * 60).toISOString()
       },
       {
-        _id: randomUUID(),
-        conversation_id: conversations[0]._id,
+        id: msgId3,
+        conversation_id: convId1,
         role: 'user',
         content: 'What about cost tracking?',
         content_preview: 'What about cost tracking?',
-        created_at: new Date()
+        created_at: new Date(twoDaysAgo.getTime() + 1000 * 60 * 5).toISOString()
       },
       {
-        _id: randomUUID(),
-        conversation_id: conversations[0]._id,
+        id: msgId4,
+        conversation_id: convId1,
         role: 'assistant',
         content: 'Cost tracking is critical. Log token counts from each API response and multiply by the provider\'s current pricing. Store this data for analysis and optimization.',
         content_preview: 'Cost tracking is critical. Log token counts...',
-        created_at: new Date()
+        created_at: new Date(twoDaysAgo.getTime() + 1000 * 60 * 6).toISOString()
       },
       {
-        _id: randomUUID(),
-        conversation_id: conversations[1]._id,
+        id: msgId5,
+        conversation_id: convId2,
         role: 'user',
         content: 'What\'s the best approach to rate limiting?',
         content_preview: 'What\'s the best approach to rate limiting?',
-        created_at: new Date()
+        created_at: dayAgo.toISOString()
       },
       {
-        _id: randomUUID(),
-        conversation_id: conversations[1]._id,
+        id: msgId6,
+        conversation_id: convId2,
         role: 'assistant',
         content: 'Use token bucket or sliding window algorithms. Implement at multiple layers: API gateway, service level, and per-user basis.',
         content_preview: 'Use token bucket or sliding window algorithms...',
-        created_at: new Date()
+        created_at: new Date(dayAgo.getTime() + 1000 * 60).toISOString()
       }
     ];
 
-    const insertedMsgs = await Message.insertMany(messages);
-    console.log(`✅ Inserted ${insertedMsgs.length} messages`);
+    for (const msg of messages) {
+      await db.execute({
+        sql: `INSERT INTO messages (id, conversation_id, role, content, content_preview, created_at)
+              VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [msg.id, msg.conversation_id, msg.role, msg.content, msg.content_preview, msg.created_at]
+      });
+    }
+    console.log(`✅ Seeded ${messages.length} messages`);
 
-    // Sample inference logs
-    const inferenceLogData = [
+    // 3. Seed Inference Logs
+    console.log('Inserting inference logs...');
+    const inferenceLogs = [
       {
-        _id: randomUUID(),
-        conversation_id: conversations[0]._id,
-        message_id: messages[0]._id,
+        id: 'log_' + nanoid(8),
+        conversation_id: convId1,
+        message_id: msgId2,
         provider: 'anthropic',
-        model: 'claude-3-sonnet-20240229',
-        request_id: 'req-' + randomUUID().substring(0, 8),
+        model: 'claude-sonnet-4-20250514',
+        request_id: 'req-' + nanoid(6),
         status: 'success',
-        latency_ms: 450,
+        latency_ms: 1800,
         input_tokens: 125,
         output_tokens: 320,
         total_tokens: 445,
@@ -157,19 +205,20 @@ async function seedDatabase() {
         output_preview: 'An observable LLM system should include...',
         error_message: null,
         error_code: null,
-        stream: false,
-        pii_redacted: false,
-        created_at: new Date()
+        stream: 0,
+        pii_redacted: 0,
+        created_at: twoDaysAgo.toISOString(),
+        raw_payload: JSON.stringify({ usage: { input_tokens: 125, output_tokens: 320 } })
       },
       {
-        _id: randomUUID(),
-        conversation_id: conversations[0]._id,
-        message_id: messages[2]._id,
+        id: 'log_' + nanoid(8),
+        conversation_id: convId1,
+        message_id: msgId4,
         provider: 'anthropic',
-        model: 'claude-3-sonnet-20240229',
-        request_id: 'req-' + randomUUID().substring(0, 8),
+        model: 'claude-sonnet-4-20250514',
+        request_id: 'req-' + nanoid(6),
         status: 'success',
-        latency_ms: 380,
+        latency_ms: 1400,
         input_tokens: 95,
         output_tokens: 210,
         total_tokens: 305,
@@ -177,19 +226,20 @@ async function seedDatabase() {
         output_preview: 'Cost tracking is critical...',
         error_message: null,
         error_code: null,
-        stream: false,
-        pii_redacted: false,
-        created_at: new Date()
+        stream: 0,
+        pii_redacted: 0,
+        created_at: new Date(twoDaysAgo.getTime() + 1000 * 60 * 6).toISOString(),
+        raw_payload: JSON.stringify({ usage: { input_tokens: 95, output_tokens: 210 } })
       },
       {
-        _id: randomUUID(),
-        conversation_id: conversations[1]._id,
-        message_id: messages[4]._id,
+        id: 'log_' + nanoid(8),
+        conversation_id: convId2,
+        message_id: msgId6,
         provider: 'anthropic',
-        model: 'claude-3-haiku-20240307',
-        request_id: 'req-' + randomUUID().substring(0, 8),
+        model: 'claude-haiku-4-5-20251001',
+        request_id: 'req-' + nanoid(6),
         status: 'success',
-        latency_ms: 250,
+        latency_ms: 850,
         input_tokens: 85,
         output_tokens: 150,
         total_tokens: 235,
@@ -197,19 +247,20 @@ async function seedDatabase() {
         output_preview: 'Use token bucket or sliding window algorithms...',
         error_message: null,
         error_code: null,
-        stream: false,
-        pii_redacted: false,
-        created_at: new Date()
+        stream: 1,
+        pii_redacted: 1,
+        created_at: dayAgo.toISOString(),
+        raw_payload: JSON.stringify({ usage: { input_tokens: 85, output_tokens: 150 } })
       },
       {
-        _id: randomUUID(),
-        conversation_id: conversations[2]._id,
+        id: 'log_' + nanoid(8),
+        conversation_id: convId3,
         message_id: null,
         provider: 'anthropic',
-        model: 'claude-3-opus-20240229',
-        request_id: 'req-' + randomUUID().substring(0, 8),
+        model: 'claude-opus-4-20250514',
+        request_id: 'req-' + nanoid(6),
         status: 'error',
-        latency_ms: 1200,
+        latency_ms: 2100,
         input_tokens: 200,
         output_tokens: 0,
         total_tokens: 200,
@@ -217,17 +268,18 @@ async function seedDatabase() {
         output_preview: null,
         error_message: 'Rate limit exceeded',
         error_code: 'RATE_LIMIT_ERROR',
-        stream: false,
-        pii_redacted: false,
-        created_at: new Date()
+        stream: 0,
+        pii_redacted: 0,
+        created_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+        raw_payload: JSON.stringify({ error: { message: 'Rate limit exceeded', code: 'RATE_LIMIT_ERROR' } })
       },
       {
-        _id: randomUUID(),
-        conversation_id: conversations[3]._id,
+        id: 'log_' + nanoid(8),
+        conversation_id: convId4,
         message_id: null,
         provider: 'anthropic',
-        model: 'claude-3-haiku-20240307',
-        request_id: 'req-' + randomUUID().substring(0, 8),
+        model: 'claude-haiku-4-5-20251001',
+        request_id: 'req-' + nanoid(6),
         status: 'cancelled',
         latency_ms: 300,
         input_tokens: 75,
@@ -237,64 +289,79 @@ async function seedDatabase() {
         output_preview: null,
         error_message: 'User cancelled',
         error_code: 'CANCELLED',
-        stream: false,
-        pii_redacted: false,
-        created_at: new Date()
+        stream: 0,
+        pii_redacted: 0,
+        created_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+        raw_payload: JSON.stringify({ status: 'cancelled' })
       }
     ];
 
-    const insertedLogs = await InferenceLog.insertMany(inferenceLogData);
-    console.log(`✅ Inserted ${insertedLogs.length} inference logs`);
+    for (const log of inferenceLogs) {
+      await db.execute({
+        sql: `INSERT INTO inference_logs (
+                id, conversation_id, message_id, provider, model, request_id,
+                status, latency_ms, input_tokens, output_tokens, total_tokens,
+                input_preview, output_preview, error_message, error_code,
+                stream, pii_redacted, created_at, raw_payload
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          log.id, log.conversation_id, log.message_id, log.provider, log.model, log.request_id,
+          log.status, log.latency_ms, log.input_tokens, log.output_tokens, log.total_tokens,
+          log.input_preview, log.output_preview, log.error_message, log.error_code,
+          log.stream, log.pii_redacted, log.created_at, log.raw_payload
+        ]
+      });
+    }
+    console.log(`✅ Seeded ${inferenceLogs.length} inference logs`);
 
-    // Sample events
+    // 4. Seed Events
+    console.log('Inserting events...');
     const events = [
       {
-        _id: randomUUID(),
+        id: 'evt_' + nanoid(8),
         type: 'conversation.created',
         source: 'sdk',
-        payload: { conversation_id: conversations[0]._id, model: 'claude-3-sonnet' },
-        processed: true,
-        created_at: new Date()
+        payload: JSON.stringify({ conversation_id: convId1, model: 'claude-sonnet-4-20250514' }),
+        processed: 1,
+        created_at: twoDaysAgo.toISOString()
       },
       {
-        _id: randomUUID(),
+        id: 'evt_' + nanoid(8),
         type: 'inference.completed',
         source: 'sdk',
-        payload: { request_id: 'req-123', tokens: 445, latency_ms: 450 },
-        processed: true,
-        created_at: new Date()
+        payload: JSON.stringify({ request_id: 'req-123', tokens: 445, latency_ms: 1800 }),
+        processed: 1,
+        created_at: twoDaysAgo.toISOString()
       },
       {
-        _id: randomUUID(),
+        id: 'evt_' + nanoid(8),
         type: 'inference.failed',
         source: 'sdk',
-        payload: { request_id: 'req-124', error: 'Rate limit exceeded' },
-        processed: true,
-        created_at: new Date()
+        payload: JSON.stringify({ request_id: 'req-124', error: 'Rate limit exceeded' }),
+        processed: 1,
+        created_at: new Date(Date.now() - 20 * 60 * 1000).toISOString()
       },
       {
-        _id: randomUUID(),
+        id: 'evt_' + nanoid(8),
         type: 'log.ingested',
         source: 'sdk',
-        payload: { count: 5, timestamp: new Date().toISOString() },
-        processed: false,
-        created_at: new Date()
+        payload: JSON.stringify({ count: 5, timestamp: new Date().toISOString() }),
+        processed: 0,
+        created_at: now.toISOString()
       }
     ];
 
-    const insertedEvents = await Event.insertMany(events);
-    console.log(`✅ Inserted ${insertedEvents.length} events`);
+    for (const evt of events) {
+      await db.execute({
+        sql: `INSERT INTO events (id, type, source, payload, processed, created_at)
+              VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [evt.id, evt.type, evt.source, evt.payload, evt.processed, evt.created_at]
+      });
+    }
+    console.log(`✅ Seeded ${events.length} events`);
 
-    // Print summary
-    console.log('\n📊 Database Summary:');
-    console.log(`   Conversations: ${conversations.length}`);
-    console.log(`   Messages: ${messages.length}`);
-    console.log(`   Inference Logs: ${inferenceLogData.length}`);
-    console.log(`   Events: ${events.length}`);
-    console.log('\n🎉 Seeding complete!');
-    
+    console.log('\n📊 Seeding Complete!');
     process.exit(0);
-
   } catch (error) {
     console.error('❌ Seeding failed:', error.message);
     process.exit(1);
