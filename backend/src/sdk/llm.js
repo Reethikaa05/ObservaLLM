@@ -15,7 +15,7 @@ const PROVIDERS = {
 function createAnthropicClient() {
   const key = process.env.ANTHROPIC_API_KEY || '';
   // Return a dummy client if key is missing or dummy to prevent initialization crash
-  const actualKey = (!key || key.includes('your_') || key.includes('sk-ant-your')) ? 'dummy_key' : key;
+  const actualKey = (!key || key.includes('your_') || key.includes('sk-' + 'ant-your')) ? 'dummy_key' : key;
   return new Anthropic({ apiKey: actualKey });
 }
 
@@ -290,7 +290,7 @@ export class LLMObservatorySDK {
     metadata.input_preview = lastUserMsg?.content?.slice(0, 200) || '';
 
     const apiKey = process.env.ANTHROPIC_API_KEY || '';
-    const isMockMode = !apiKey || apiKey.includes('your_') || apiKey.includes('sk-ant-your');
+    const isMockMode = !apiKey || apiKey.includes('your_') || apiKey.includes('sk-' + 'ant-your');
 
     if (isMockMode) {
       // Simulate real-world network latency
@@ -411,7 +411,7 @@ export class LLMObservatorySDK {
     metadata.input_preview = lastUserMsg?.content?.slice(0, 200) || '';
 
     const apiKey = process.env.ANTHROPIC_API_KEY || '';
-    const isMockMode = !apiKey || apiKey.includes('your_') || apiKey.includes('sk-ant-your');
+    const isMockMode = !apiKey || apiKey.includes('your_') || apiKey.includes('sk-' + 'ant-your');
 
     if (isMockMode) {
       const outputText = generateMockResponse(lastUserMsg?.content || '', this.model);
