@@ -1,13 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../stores/store.js';
 
+const BASE = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+  ? '/_/backend/api'
+  : '/api';
+
 export function useSSE() {
   const addRecentEvent = useStore(s => s.addRecentEvent);
   const loadConversations = useStore(s => s.loadConversations);
   const esRef = useRef(null);
 
   useEffect(() => {
-    const es = new EventSource('/api/events/stream');
+    const es = new EventSource(`${BASE}/events/stream`);
     esRef.current = es;
 
     es.addEventListener('connected', () => {
